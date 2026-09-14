@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uang Digital - PP Al-Islam</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Supabase Client (UMD Build) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f0fdf4; }
+        .card { background: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); padding: 1.5rem; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // GANTI DENGAN URL & KEY SUPABASE ANDA NANTINYA
+        const SUPABASE_URL = 'https://xyzcompany.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGci...'; 
+        
+        let supabase = null;
+        if (window.supabase) {
+            try {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            } catch (err) {
+                console.error("Gagal menginisialisasi Supabase:", err);
+            }
+        } else {
+            console.warn("Library Supabase tidak ditemukan, aplikasi berjalan dengan mode offline (dummy data).");
+        }
+
+        // DATA DUMMY (Akan digunakan jika Supabase gagal/belum dikonfigurasi)
+        const mockUsers = [
+            { id: 1, username: 'admin', password: '123', role: 'admin' },
+            { id: 2, username: 'bendahara', password: '123', role: 'bendahara' },
+            { id: 3, username: 'edc', password: '123', role: 'edc' },
+            { id: 4, username: 'p001', password: '123', role: 'pedagang' },
+            { id: 5, username: 'pj01', password: '123', role: 'pj_kegiatan' }
+        ];
+        let mockSantri = [
+            { id: 'S001', nama: 'Ahmad Faris', rayon: 'Makkah 1', saldo: 50000, foto_url: 'https://placehold.co/150/16a34a/fff?text=AF' },
+            { id: 'S002', nama: 'Budi Santoso', rayon: 'Madinah 2', saldo: 120000, foto_url: 'https://placehold.co/150/16a34a/fff?text=BS' }
+        ];
+        let mockPedagang = [
+            { id: 'P001', nama: 'Pak Kumis', jualan: 'Bakso', saldo: 250000 },
+            { id: 'P002', nama: 'Bu Siti', jualan: 'Es Teh', saldo: 100000 }
+        ];
+        let mockPencairan = [
+            { id: 1, pengaju_tipe: 'pedagang', pengaju_id: 'P001', nama: 'Pak Kumis', nominal: 100000, status: 'pending' }
+        ];
+
+        const Button = ({ children, onClick, variant = 'primary', className = '' }) => {
+            const baseStyle = "px-4 py-2 rounded-lg font-semibold transition-colors";
+            const variants = {
+                primary: "bg-green-600 text-white hover:bg-green-700",
+                danger: "bg-red-500 text-white hover:bg-red-600",
+                outline: "border-2 border-green-600 text-green-600 hover:bg-green-50"
+            };
+            return <button onClick={onClick} className={`${baseStyle} ${variants[variant]} ${className}`}>{children}</button>;
+        };
+
+        const Input = ({ label, type = 'text', value, onChange, placeholder }) => (
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                <input type={type} value={value} onChange={onChange} placeholder={placeholder} 
+                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"/>
+            </div>
+        );
+
+        const Login = ({ onLogin }) => {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                // Simulasi Cek Login Tanpa Enkripsi
+                const user = mockUsers.find(u => u.username === username && u.password === password);
+                if (user) {
+                    onLogin(user);
+                } else {
+                    setError('Username atau password salah! (Coba: admin/123)');
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-green-900 px-4">
+                    <div className="card w-full max-w-md bg-white">
+                        <div className="text-center mb-6">
+                            <h1 className="text-2xl font-bold text-green-800">Uang Digital</h1>
+                            <p className="text-gray-500">PP Modern Al-Islam</p>
+                        </div>
+                        {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>}
+                        <form onSubmit={handleLogin}>
+                            <Input label="Username" value={username} onChange={e => setUsername(e.target.value)} placeholder="Masukkan username" />
+                            <Input label="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Masukkan password" />
+                            <Button className="w-full mt-4" variant="primary">Masuk</Button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminSantri = () => {
+            const [santriData, setSantriData] = useState(mockSantri);
+            const qrRef = useRef(null);
+            
+            const handlePrintQR = (id) => {
+                // Simulasi Cetak QR
+                qrRef.current.innerHTML = "";
+                new QRCode(qrRef.current, { text: id, width: 128, height: 128 });
+                alert("Simulasi Cetak QR Berhasil. Silakan lihat kode di bagian bawah.");
+            };
+
+            return (
+                <div>
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-800">Master Santri</h2>
+                        <Button>+ Tambah Santri</Button>
+                    </div>
+                    <div className="overflow-x-auto bg-white rounded-lg shadow">
+                        <table className="w-full text-left">
+                            <thead className="bg-green-100 text-green-800">
+                                <tr>
+                                    <th className="p-3">ID</th><th className="p-3">Foto</th><th className="p-3">Nama</th><th className="p-3">Rayon</th><th className="p-3">Saldo</th><th className="p-3">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {santriData.map(s => (
+                                    <tr key={s.id} className="border-b">
+                                        <td className="p-3">{s.id}</td>
+                                        <td className="p-3"><img src={s.foto_url} alt="foto" className="w-10 h-10 rounded-full" /></td>
+                                        <td className="p-3 font-medium">{s.nama}</td>
+                                        <td className="p-3">{s.rayon}</td>
+                                        <td className="p-3 text-green-600 font-bold">Rp {s.saldo.toLocaleString('id-ID')}</td>
+                                        <td className="p-3">
+                                            <button onClick={() => handlePrintQR(s.id)} className="text-blue-500 mr-2 hover:underline">Cetak QR</button>
+                                            <button className="text-red-500 hover:underline">Blokir</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="mt-4 p-4 border rounded bg-white" id="qr-container">
+                        <h3 className="font-bold mb-2">Area Cetak QR:</h3>
+                        <div ref={qrRef}></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PedagangDashboard = () => {
+            const [scanId, setScanId] = useState('');
+            const [nominal, setNominal] = useState('');
+            const [scannedSantri, setScannedSantri] = useState(null);
+
+            const handleScan = () => {
+                const s = mockSantri.find(x => x.id === scanId.toUpperCase());
+                if(s) setScannedSantri(s);
+                else alert("Santri tidak ditemukan!");
+            };
+
+            const handleBayar = () => {
+                if(!scannedSantri || !nominal) return;
+                if(scannedSantri.saldo < nominal) {
+                    alert("Saldo tidak cukup!");
+                    return;
+                }
+                // Kurangi saldo
+                scannedSantri.saldo -= parseInt(nominal);
+                alert(`Transaksi Berhasil!\nSisa Saldo: Rp ${scannedSantri.saldo.toLocaleString('id-ID')}`);
+                setScanId('');
+                setNominal('');
+                setScannedSantri(null);
+            };
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="card">
+                        <h2 className="text-xl font-bold mb-4 text-green-800">Scan QR / ID Santri</h2>
+                        <div className="flex gap-2 mb-4">
+                            <input type="text" value={scanId} onChange={e=>setScanId(e.target.value)} placeholder="Misal: S001" className="flex-1 p-2 border rounded" />
+                            <Button onClick={handleScan}>Cari / Scan</Button>
+                        </div>
+
+                        {scannedSantri && (
+                            <div className="bg-green-50 p-4 rounded-lg text-center border border-green-200">
+                                <img src={scannedSantri.foto_url} className="w-24 h-24 mx-auto rounded-full mb-2" />
+                                <h3 className="font-bold text-lg">{scannedSantri.nama}</h3>
+                                <p className="text-sm text-gray-600 mb-2">{scannedSantri.rayon}</p>
+                                <p className="text-xl text-green-600 font-bold mb-4">Sisa Saldo: Rp {scannedSantri.saldo.toLocaleString('id-ID')}</p>
+                                
+                                <Input label="Nominal Jajan (Rp)" type="number" value={nominal} onChange={e=>setNominal(e.target.value)} />
+                                <Button onClick={handleBayar} className="w-full">Potong Saldo</Button>
+                            </div>
+                        )}
+                    </div>
+                    <div className="card">
+                        <h2 className="text-xl font-bold mb-4 text-green-800">Pengajuan Pencairan</h2>
+                        <p className="mb-4">Saldo Penjualan Anda: <span className="font-bold text-xl">Rp 250.000</span></p>
+                        <Input label="Nominal Pencairan" type="number" placeholder="Rp" />
+                        <Input label="Potongan Shodaqoh/Infaq (Sukarela)" type="number" placeholder="Rp" />
+                        <Input label="Sewa Tenda (Jika Ada)" type="number" placeholder="Rp" />
+                        <Button className="w-full">Ajukan ke Bendahara</Button>
+                    </div>
+                </div>
+            );
+        };
+
+        const BendaharaDashboard = () => {
+            const [pencairan, setPencairan] = useState(mockPencairan);
+
+            const prosesCair = (id) => {
+                setPencairan(pencairan.map(p => p.id === id ? {...p, status: 'cair'} : p));
+                alert("Dana berhasil dicairkan!");
+            };
+
+            return (
+                <div className="card">
+                    <h2 className="text-xl font-bold mb-4 text-green-800">Antrean Pencairan</h2>
+                    <table className="w-full text-left">
+                        <thead className="bg-green-100">
+                            <tr>
+                                <th className="p-3">Nama (Pengaju)</th>
+                                <th className="p-3">Jenis</th>
+                                <th className="p-3">Nominal Bersih</th>
+                                <th className="p-3">Status</th>
+                                <th className="p-3">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pencairan.map(p => (
+                                <tr key={p.id} className="border-b">
+                                    <td className="p-3 font-bold">{p.nama}</td>
+                                    <td className="p-3">{p.pengaju_tipe}</td>
+                                    <td className="p-3">Rp {p.nominal.toLocaleString('id-ID')}</td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-1 rounded text-xs text-white ${p.status==='cair'?'bg-green-500':'bg-yellow-500'}`}>
+                                            {p.status.toUpperCase()}
+                                        </span>
+                                    </td>
+                                    <td className="p-3">
+                                        {p.status === 'pending' && <Button onClick={() => prosesCair(p.id)}>Cairkan</Button>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        };
+
+        const EDCDashboard = () => {
+            const [santriId, setSantriId] = useState('');
+            const [trxBri, setTrxBri] = useState('');
+            const [nominal, setNominal] = useState('');
+
+            const handleTopUp = (e) => {
+                e.preventDefault();
+                const s = mockSantri.find(x => x.id === santriId.toUpperCase());
+                if(s) {
+                    s.saldo += parseInt(nominal);
+                    alert(`Top up berhasil!\nSaldo ${s.nama} sekarang: Rp ${s.saldo.toLocaleString('id-ID')}`);
+                    setSantriId(''); setTrxBri(''); setNominal('');
+                } else {
+                    alert("ID Santri tidak ditemukan.");
+                }
+            };
+
+            return (
+                <div className="card max-w-lg mx-auto">
+                    <h2 className="text-xl font-bold mb-4 text-green-800">Tarik Tunai / Isi Voucher (EDC)</h2>
+                    <form onSubmit={handleTopUp}>
+                        <Input label="ID Santri" value={santriId} onChange={e=>setSantriId(e.target.value)} placeholder="Misal: S001" />
+                        <Input label="Nominal Top Up (Rp)" type="number" value={nominal} onChange={e=>setNominal(e.target.value)} placeholder="0" />
+                        <Input label="No. Referensi / Struk BRI" value={trxBri} onChange={e=>setTrxBri(e.target.value)} placeholder="Input kode struk" />
+                        <Button className="w-full mt-4">Proses & Tambah Saldo</Button>
+                    </form>
+                </div>
+            );
+        }
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('santri');
+
+            if (!user) return <Login onLogin={setUser} />;
+
+            const renderContent = () => {
+                if (user.role === 'admin') {
+                    if (activeTab === 'santri') return <AdminSantri />;
+                    return <div className="card">Fitur {activeTab} sedang dalam pengembangan.</div>;
+                }
+                if (user.role === 'pedagang') return <PedagangDashboard />;
+                if (user.role === 'bendahara') return <BendaharaDashboard />;
+                if (user.role === 'edc') return <EDCDashboard />;
+                if (user.role === 'pj_kegiatan') return <PedagangDashboard />; // Mirip dengan pedagang fungsionalitasnya
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col md:flex-row bg-gray-50">
+                    {/* Sidebar */}
+                    <div className="w-full md:w-64 bg-green-800 text-white p-4">
+                        <div className="mb-8 text-center">
+                            <h2 className="text-xl font-bold">Uang Digital</h2>
+                            <p className="text-sm text-green-200">PP Al-Islam</p>
+                        </div>
+                        
+                        <div className="mb-4 text-sm bg-green-900 p-3 rounded">
+                            Masuk sebagai: <b>{user.username}</b> ({user.role})
+                        </div>
+
+                        <nav className="space-y-2">
+                            {user.role === 'admin' && (
+                                <>
+                                    <button onClick={()=>setActiveTab('santri')} className={`w-full text-left p-2 rounded ${activeTab==='santri'?'bg-green-700':''}`}>Master Santri</button>
+                                    <button onClick={()=>setActiveTab('pedagang')} className={`w-full text-left p-2 rounded ${activeTab==='pedagang'?'bg-green-700':''}`}>Master Pedagang</button>
+                                    <button onClick={()=>setActiveTab('laporan')} className={`w-full text-left p-2 rounded ${activeTab==='laporan'?'bg-green-700':''}`}>Laporan Bazar</button>
+                                </>
+                            )}
+                            {user.role === 'pedagang' && <button className="w-full text-left p-2 rounded bg-green-700">Dashboard Pedagang</button>}
+                            {user.role === 'bendahara' && <button className="w-full text-left p-2 rounded bg-green-700">Dashboard Bendahara</button>}
+                            {user.role === 'edc' && <button className="w-full text-left p-2 rounded bg-green-700">Petugas EDC</button>}
+                            
+                            <button onClick={() => setUser(null)} className="w-full text-left p-2 rounded text-red-300 hover:bg-red-800 mt-8">Logout</button>
+                        </nav>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="flex-1 p-8">
+                        {renderContent()}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
